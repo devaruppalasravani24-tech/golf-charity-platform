@@ -137,7 +137,7 @@ export default function Dashboard() {
                   to="/scores"
                 />
                 <QuickLink
-                  body="Start or refresh your subscription through Razorpay."
+                  body="Activate or refresh your demo subscription with the mock payment flow."
                   title="Subscription"
                   to="/subscription"
                 />

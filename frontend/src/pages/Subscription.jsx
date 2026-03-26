@@ -8,7 +8,14 @@ import { useSubscription } from "../context/SubscriptionContext";
 
 export default function Subscription() {
   const { profile } = useAuth();
-  const { checkoutLoading, error, loading, startCheckout, subscription } =
+  const {
+    checkoutLoading,
+    error,
+    loading,
+    message,
+    startCheckout,
+    subscription,
+  } =
     useSubscription();
 
   const plans = useMemo(
@@ -16,7 +23,7 @@ export default function Subscription() {
       {
         amount: 19.99,
         description:
-          "Monthly access to score tracking, draw readiness, and charity selection.",
+          "Monthly demo access to score tracking, draw readiness, and charity selection.",
         features: [
           "Score tracking for your latest five rounds",
           "Monthly draw participation flow",
@@ -28,7 +35,7 @@ export default function Subscription() {
       {
         amount: 199.99,
         description:
-          "Yearly access with the same core features and lower annual cost.",
+          "Yearly demo access with the same core features and lower annual cost.",
         features: [
           "Everything in monthly",
           "Useful for long-term recurring supporters",
@@ -48,7 +55,7 @@ export default function Subscription() {
         <Sidebar />
         <div className="mt-6 flex-1 lg:mt-0">
           <Header
-            description="Use Razorpay payment links or a Supabase Edge Function to activate your plan."
+            description="Activate a demo subscription instantly with a mock payment flow."
             eyebrow="Subscription"
             title="Choose the right billing cycle"
           />
@@ -74,6 +81,11 @@ export default function Subscription() {
                   {error}
                 </div>
               ) : null}
+              {message ? (
+                <div className="mt-4 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+                  {message}
+                </div>
+              ) : null}
             </Card>
 
             <div className="grid gap-6 md:grid-cols-2">
@@ -86,7 +98,7 @@ export default function Subscription() {
                   features={plan.features}
                   highlighted={plan.highlighted}
                   key={plan.value}
-                  onSelect={() => startCheckout(plan.value, "/subscription")}
+                  onSelect={() => startCheckout(plan.value)}
                   plan={plan.plan}
                 />
               ))}

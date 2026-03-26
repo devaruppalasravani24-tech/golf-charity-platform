@@ -20,7 +20,7 @@ export default function Home() {
 
   const highlights = [
     "Supabase authentication and live data",
-    "Razorpay checkout handoff",
+    "Instant mock payment activation",
     "Charity selection with contribution tracking",
     "Admin controls for users, draws, and winners",
   ];

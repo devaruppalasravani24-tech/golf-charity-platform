@@ -8,11 +8,12 @@ import {
 const SubscriptionContext = createContext(null);
 
 export function SubscriptionProvider({ children }) {
-  const { profile, refreshProfile, user } = useAuth();
+  const { profile, user } = useAuth();
   const [subscription, setSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -35,6 +36,7 @@ export function SubscriptionProvider({ children }) {
       } else {
         setSubscription(result.data);
         setError("");
+        setMessage("");
       }
 
       setLoading(false);
@@ -46,7 +48,7 @@ export function SubscriptionProvider({ children }) {
     };
   }, [profile, user?.id]);
 
-  async function startCheckout(plan, originPath = "/dashboard") {
+  async function startCheckout(plan) {
     if (!user?.id) {
       const result = { error: "You must be signed in before starting checkout." };
       setError(result.error);
@@ -55,12 +57,11 @@ export function SubscriptionProvider({ children }) {
 
     setCheckoutLoading(true);
     setError("");
+    setMessage("");
 
     const result = await startCheckoutSession({
-      cancelPath: originPath,
       email: user.email,
       plan,
-      successPath: "/dashboard",
       userId: user.id,
     });
 
@@ -71,7 +72,9 @@ export function SubscriptionProvider({ children }) {
       return result;
     }
 
-    await refreshProfile();
+    setSubscription(result.data?.subscription ?? null);
+    setMessage(result.data?.message || "Mock payment completed.");
+    setError("");
     return result;
   }
 
@@ -80,10 +83,11 @@ export function SubscriptionProvider({ children }) {
       checkoutLoading,
       error,
       loading,
+      message,
       startCheckout,
       subscription,
     }),
-    [checkoutLoading, error, loading, subscription]
+    [checkoutLoading, error, loading, message, subscription]
   );
 
   return (

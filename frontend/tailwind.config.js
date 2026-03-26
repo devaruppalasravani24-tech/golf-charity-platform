@@ -9,6 +9,9 @@ export default {
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       colors: {
+        bg: "#060d08",
+        accent: "#00e5a0",
+        accent2: "#7dd3fc",
         fairway: {
           50:  '#f0fdf4',
           100: '#dcfce7',
@@ -27,6 +30,7 @@ export default {
           950: '#060d08',
         },
         gold: {
+          DEFAULT: '#fbbf24',
           300: '#fcd34d',
           400: '#fbbf24',
           500: '#f59e0b',

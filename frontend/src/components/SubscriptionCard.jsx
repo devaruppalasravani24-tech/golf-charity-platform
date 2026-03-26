@@ -24,7 +24,7 @@ export default function SubscriptionCard({
       <p className="mt-3 text-sm leading-6 text-slate-300">{description}</p>
       <ul className="mt-5 space-y-2 text-sm text-slate-300">
         {features.map((feature) => (
-          <li key={feature}>• {feature}</li>
+          <li key={feature}>- {feature}</li>
         ))}
       </ul>
       <div className="mt-6">
@@ -34,7 +34,7 @@ export default function SubscriptionCard({
           onClick={onSelect}
           variant={current ? "secondary" : "primary"}
         >
-          {current ? "Current plan" : "Choose plan"}
+          {current ? "Current plan" : "Activate plan"}
         </CartButton>
       </div>
     </Card>
