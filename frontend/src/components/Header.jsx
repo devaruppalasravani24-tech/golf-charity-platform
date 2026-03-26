@@ -7,7 +7,7 @@ export default function Header({ actions, eyebrow, title, description }) {
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="mt-2 font-display text-4xl font-black text-white">
+        <h1 className="mt-2 font-display text-3xl font-black text-white sm:text-4xl lg:text-5xl">
           {title}
         </h1>
         {description ? (
@@ -16,7 +16,11 @@ export default function Header({ actions, eyebrow, title, description }) {
           </p>
         ) : null}
       </div>
-      {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
+      {actions ? (
+        <div className="flex w-full flex-wrap gap-3 md:w-auto md:justify-end">
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }

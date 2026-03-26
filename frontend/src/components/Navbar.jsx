@@ -19,11 +19,11 @@ export default function Navbar() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-black/25 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
         <NavLink className="font-display text-2xl font-black text-white" to="/">
           GolfGives
         </NavLink>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center justify-center gap-2 lg:w-auto lg:justify-end">
           <NavLink className={navClassName} to="/">
             Home
           </NavLink>

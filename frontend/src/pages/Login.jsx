@@ -45,12 +45,12 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-bg text-white">
       <Navbar />
-      <main className="mx-auto flex max-w-7xl items-center justify-center px-4 py-14 sm:px-6 lg:px-8">
-        <section className="w-full max-w-xl rounded-[2rem] border border-white/10 bg-white/5 p-8 shadow-[0_25px_80px_rgba(0,0,0,0.25)] backdrop-blur-xl">
+      <main className="mx-auto flex max-w-7xl items-center justify-center px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
+        <section className="w-full max-w-xl rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-[0_25px_80px_rgba(0,0,0,0.25)] backdrop-blur-xl sm:p-8">
           <p className="text-sm uppercase tracking-[0.28em] text-accent">
             Welcome back
           </p>
-          <h1 className="mt-3 font-display text-4xl font-black text-white">
+          <h1 className="mt-3 font-display text-3xl font-black text-white sm:text-4xl">
             Sign in to your GolfGives account
           </h1>
           <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
@@ -98,6 +98,13 @@ export default function Login() {
               {submitting ? "Signing in..." : "Sign in"}
             </CartButton>
           </form>
+
+          <div className="mt-6 flex flex-col gap-3 text-sm text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+            <span>Need an account?</span>
+            <CartButton className="w-full sm:w-auto" to="/signup" variant="secondary">
+              Create account
+            </CartButton>
+          </div>
         </section>
       </main>
       <Footer />

@@ -1,7 +1,18 @@
 import { assertSupabaseConfigured } from "./supabaseClient";
 
 function formatError(error) {
-  return error?.message || "Something went wrong. Please try again.";
+  const message = error?.message || "";
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("rate limit")) {
+    return "Email signup is temporarily rate-limited. If you already tried this email, check your inbox or try signing in now. Otherwise wait a few minutes or relax the email rate limit in Supabase Auth settings.";
+  }
+
+  if (normalized.includes("user already registered")) {
+    return "This email already has an account. Try signing in instead.";
+  }
+
+  return message || "Something went wrong. Please try again.";
 }
 
 async function ensureProfileRow({
