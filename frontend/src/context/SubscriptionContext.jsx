@@ -72,8 +72,7 @@ export function SubscriptionProvider({ children }) {
       return result;
     }
 
-    setSubscription(result.data?.subscription ?? null);
-    setMessage(result.data?.message || "Mock payment completed.");
+    setMessage(result.data?.message || "Redirecting to Stripe Checkout...");
     setError("");
     return result;
   }

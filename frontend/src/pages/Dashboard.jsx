@@ -137,7 +137,7 @@ export default function Dashboard() {
                   to="/scores"
                 />
                 <QuickLink
-                  body="Activate or refresh your demo subscription with the mock payment flow."
+                  body="Activate or refresh your subscription through Stripe Checkout."
                   title="Subscription"
                   to="/subscription"
                 />

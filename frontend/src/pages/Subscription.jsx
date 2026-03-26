@@ -23,7 +23,7 @@ export default function Subscription() {
       {
         amount: 19.99,
         description:
-          "Monthly demo access to score tracking, draw readiness, and charity selection.",
+          "Monthly access to score tracking, draw readiness, and charity selection.",
         features: [
           "Score tracking for your latest five rounds",
           "Monthly draw participation flow",
@@ -35,7 +35,7 @@ export default function Subscription() {
       {
         amount: 199.99,
         description:
-          "Yearly demo access with the same core features and lower annual cost.",
+          "Yearly access with the same core features and lower annual cost.",
         features: [
           "Everything in monthly",
           "Useful for long-term recurring supporters",
@@ -55,7 +55,7 @@ export default function Subscription() {
         <Sidebar />
         <div className="mt-6 flex-1 lg:mt-0">
           <Header
-            description="Activate a demo subscription instantly with a mock payment flow."
+            description="Use Stripe Checkout to activate your monthly or yearly plan."
             eyebrow="Subscription"
             title="Choose the right billing cycle"
           />

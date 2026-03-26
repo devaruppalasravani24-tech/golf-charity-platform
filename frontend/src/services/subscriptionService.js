@@ -1,125 +1,94 @@
 import { assertSupabaseConfigured } from "./supabaseClient";
 
-const MOCK_SUBSCRIPTION_STORAGE_KEY =
-  "golf-charity-platform.mock-subscriptions";
-const MOCK_PAYMENT_DELAY_MS = Number(
-  import.meta.env.VITE_MOCK_PAYMENT_DELAY_MS || 1100
-);
-const PLAN_PRICING = {
-  monthly: 19.99,
-  yearly: 199.99,
+const STRIPE_SCRIPT_SRC = "https://js.stripe.com/v3/";
+const STRIPE_SCRIPT_ID = "stripe-js-sdk";
+
+const PAYMENT_LINKS = {
+  monthly: import.meta.env.VITE_STRIPE_MONTHLY_PAYMENT_LINK,
+  yearly: import.meta.env.VITE_STRIPE_YEARLY_PAYMENT_LINK,
 };
 
-function wait(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
+let stripeLoaderPromise = null;
+
+function formatError(error) {
+  return error?.message || "Stripe checkout could not be started.";
 }
 
-function buildEndsAt(plan, startsAt) {
-  const date = new Date(startsAt);
-  if (plan === "yearly") {
-    date.setFullYear(date.getFullYear() + 1);
-  } else {
-    date.setMonth(date.getMonth() + 1);
-  }
-  return date.toISOString();
+function buildReturnUrl(pathname, status) {
+  const url = new URL(pathname, window.location.origin);
+  url.searchParams.set("status", status);
+  return url.toString();
 }
 
 function normalizeSubscription(record, profile) {
   return {
-    amount: Number(record?.amount ?? PLAN_PRICING[record?.plan] ?? 0),
+    amount: Number(record?.amount ?? 0),
     currency: record?.currency || "GBP",
     customerId: record?.customer_id || profile?.customer_id || null,
     endsAt: record?.ends_at || null,
     paidAt: record?.paid_at || null,
     plan: record?.plan || record?.price_interval || profile?.subscription_plan || null,
-    provider: record?.provider || "mock",
+    provider: record?.provider || "stripe",
     source: record?.source || "supabase",
     startsAt: record?.starts_at || null,
     status: record?.status || profile?.subscription_status || "inactive",
   };
 }
 
-function readMockSubscriptions() {
-  try {
-    const payload = window.localStorage.getItem(MOCK_SUBSCRIPTION_STORAGE_KEY);
-    return payload ? JSON.parse(payload) : {};
-  } catch {
-    return {};
+function loadStripeScript() {
+  if (window.Stripe) {
+    return Promise.resolve(window.Stripe);
   }
+
+  if (stripeLoaderPromise) {
+    return stripeLoaderPromise;
+  }
+
+  stripeLoaderPromise = new Promise((resolve, reject) => {
+    const existingScript = document.getElementById(STRIPE_SCRIPT_ID);
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(window.Stripe), {
+        once: true,
+      });
+      existingScript.addEventListener(
+        "error",
+        () => reject(new Error("Stripe.js failed to load.")),
+        { once: true }
+      );
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = STRIPE_SCRIPT_ID;
+    script.src = STRIPE_SCRIPT_SRC;
+    script.async = true;
+    script.onload = () => resolve(window.Stripe);
+    script.onerror = () => reject(new Error("Stripe.js failed to load."));
+    document.head.appendChild(script);
+  });
+
+  return stripeLoaderPromise;
 }
 
-function getLocalMockSubscription(userId) {
-  if (!userId) {
-    return null;
+async function getStripeClient() {
+  const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+
+  if (!publishableKey) {
+    throw new Error(
+      "VITE_STRIPE_PUBLISHABLE_KEY is missing. Add your Stripe publishable key to frontend/.env."
+    );
   }
 
-  const subscriptions = readMockSubscriptions();
-  return subscriptions[userId] || null;
-}
+  const Stripe = await loadStripeScript();
 
-function persistLocalMockSubscription(userId, subscription) {
-  if (!userId) {
-    return;
+  if (typeof Stripe !== "function") {
+    throw new Error("Stripe.js is not available in the browser.");
   }
 
-  const subscriptions = readMockSubscriptions();
-  subscriptions[userId] = subscription;
-  window.localStorage.setItem(
-    MOCK_SUBSCRIPTION_STORAGE_KEY,
-    JSON.stringify(subscriptions)
-  );
-}
-
-async function persistSupabaseMockSubscription(userId, subscription) {
-  const supabase = assertSupabaseConfigured();
-  const { data: existingSubscription } = await supabase
-    .from("subscriptions")
-    .select("id")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let writeError = null;
-
-  if (existingSubscription?.id) {
-    const { error } = await supabase
-      .from("subscriptions")
-      .update({
-        ...subscription,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", existingSubscription.id);
-
-    writeError = error;
-  } else {
-    const { error } = await supabase.from("subscriptions").insert(subscription);
-    writeError = error;
-  }
-
-  if (writeError) {
-    throw writeError;
-  }
-
-  const { error: userError } = await supabase
-    .from("users")
-    .update({
-      subscription_plan: subscription.plan,
-      subscription_status: subscription.status,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", userId);
-
-  if (userError) {
-    throw userError;
-  }
+  return Stripe(publishableKey);
 }
 
 export async function getUserSubscriptionSummary(userId, profile) {
-  const localSubscription = getLocalMockSubscription(userId);
-
   try {
     const supabase = assertSupabaseConfigured();
     const { data, error } = await supabase
@@ -130,104 +99,107 @@ export async function getUserSubscriptionSummary(userId, profile) {
       .limit(1)
       .maybeSingle();
 
-    if (!error && data) {
-      return { data: normalizeSubscription(data, profile), error: null };
+    if (error && error.code !== "PGRST116") {
+      return { data: normalizeSubscription(null, profile), error: null };
     }
 
-    if (localSubscription) {
-      return {
-        data: normalizeSubscription(localSubscription, profile),
-        error: null,
-      };
-    }
-
-    return {
-      data: normalizeSubscription(
-        {
-          provider: "mock",
-          source: "profile",
-        },
-        profile
-      ),
-      error: null,
-    };
+    return { data: normalizeSubscription(data, profile), error: null };
   } catch {
-    if (localSubscription) {
-      return {
-        data: normalizeSubscription(localSubscription, profile),
-        error: null,
-      };
-    }
-
-    return {
-      data: normalizeSubscription(
-        {
-          provider: "mock",
-          source: "profile",
-        },
-        profile
-      ),
-      error: null,
-    };
+    return { data: normalizeSubscription(null, profile), error: null };
   }
 }
 
 export async function startCheckoutSession({
+  cancelPath = "/subscription",
   email,
   plan,
+  successPath = "/dashboard",
   userId,
 }) {
   const normalizedPlan = String(plan || "").toLowerCase();
 
   if (!userId) {
-    return { data: null, error: "You must be signed in to activate a plan." };
+    return { data: null, error: "You must be signed in to start checkout." };
   }
 
-  if (!Object.hasOwn(PLAN_PRICING, normalizedPlan)) {
+  if (!PAYMENT_LINKS[normalizedPlan] && !["monthly", "yearly"].includes(normalizedPlan)) {
     return { data: null, error: "Please choose a valid subscription plan." };
   }
 
-  const startsAt = new Date().toISOString();
-  const mockSubscription = {
-    amount: PLAN_PRICING[normalizedPlan],
-    currency: "GBP",
-    customer_id: email || null,
-    ends_at: buildEndsAt(normalizedPlan, startsAt),
-    paid_at: startsAt,
-    plan: normalizedPlan,
-    provider: "mock",
-    starts_at: startsAt,
-    status: "active",
-    user_id: userId,
-  };
-
-  await wait(MOCK_PAYMENT_DELAY_MS);
-
-  let mode = "local";
-
   try {
-    await persistSupabaseMockSubscription(userId, mockSubscription);
-    mode = "supabase";
-  } catch {
-    mode = "local";
+    const directLink = PAYMENT_LINKS[normalizedPlan];
+
+    if (directLink) {
+      window.location.assign(directLink);
+      return {
+        data: {
+          message: "Redirecting to Stripe Checkout...",
+          redirectUrl: directLink,
+        },
+        error: null,
+      };
+    }
+
+    const functionName = import.meta.env.VITE_SUPABASE_STRIPE_FUNCTION;
+
+    if (!functionName) {
+      return {
+        data: null,
+        error:
+          "Stripe checkout is not fully configured. Add Stripe payment links or set VITE_SUPABASE_STRIPE_FUNCTION.",
+      };
+    }
+
+    const supabase = assertSupabaseConfigured();
+    const { data, error } = await supabase.functions.invoke(functionName, {
+      body: {
+        cancel_url: buildReturnUrl(cancelPath, "checkout_cancelled"),
+        email,
+        plan: normalizedPlan,
+        success_url: buildReturnUrl(successPath, "checkout_success"),
+        user_id: userId,
+      },
+    });
+
+    if (error) {
+      return { data: null, error: formatError(error) };
+    }
+
+    if (data?.url) {
+      window.location.assign(data.url);
+      return {
+        data: {
+          message: "Redirecting to Stripe Checkout...",
+          redirectUrl: data.url,
+        },
+        error: null,
+      };
+    }
+
+    if (data?.sessionId) {
+      const stripe = await getStripeClient();
+      const redirectResult = await stripe.redirectToCheckout({
+        sessionId: data.sessionId,
+      });
+
+      if (redirectResult?.error) {
+        return { data: null, error: formatError(redirectResult.error) };
+      }
+
+      return {
+        data: {
+          message: "Redirecting to Stripe Checkout...",
+          sessionId: data.sessionId,
+        },
+        error: null,
+      };
+    }
+
+    return {
+      data: null,
+      error: "The Stripe checkout function did not return a checkout URL or session ID.",
+    };
+  } catch (error) {
+    return { data: null, error: formatError(error) };
   }
-
-  const storedSubscription = {
-    ...mockSubscription,
-    source: mode,
-  };
-
-  persistLocalMockSubscription(userId, storedSubscription);
-
-  return {
-    data: {
-      message:
-        mode === "supabase"
-          ? "Mock payment approved and synced to Supabase."
-          : "Mock payment approved locally while backend sync is unavailable.",
-      mode,
-      subscription: normalizeSubscription(storedSubscription),
-    },
-    error: null,
-  };
 }
