@@ -2,10 +2,17 @@ import { assertSupabaseConfigured } from "./supabaseClient";
 
 const STRIPE_SCRIPT_SRC = "https://js.stripe.com/v3/";
 const STRIPE_SCRIPT_ID = "stripe-js-sdk";
+const PENDING_STRIPE_CHECKOUT_STORAGE_KEY =
+  "golf-charity-platform.pending-stripe-checkout";
 
 const PAYMENT_LINKS = {
   monthly: import.meta.env.VITE_STRIPE_MONTHLY_PAYMENT_LINK,
   yearly: import.meta.env.VITE_STRIPE_YEARLY_PAYMENT_LINK,
+};
+
+const PLAN_PRICING = {
+  monthly: 19.99,
+  yearly: 199.99,
 };
 
 let stripeLoaderPromise = null;
@@ -20,9 +27,19 @@ function buildReturnUrl(pathname, status) {
   return url.toString();
 }
 
+function buildEndsAt(plan, startsAt) {
+  const date = new Date(startsAt);
+  if (plan === "yearly") {
+    date.setFullYear(date.getFullYear() + 1);
+  } else {
+    date.setMonth(date.getMonth() + 1);
+  }
+  return date.toISOString();
+}
+
 function normalizeSubscription(record, profile) {
   return {
-    amount: Number(record?.amount ?? 0),
+    amount: Number(record?.amount ?? PLAN_PRICING[record?.plan] ?? 0),
     currency: record?.currency || "GBP",
     customerId: record?.customer_id || profile?.customer_id || null,
     endsAt: record?.ends_at || null,
@@ -33,6 +50,38 @@ function normalizeSubscription(record, profile) {
     startsAt: record?.starts_at || null,
     status: record?.status || profile?.subscription_status || "inactive",
   };
+}
+
+function readPendingStripeCheckout() {
+  try {
+    const payload = window.localStorage.getItem(
+      PENDING_STRIPE_CHECKOUT_STORAGE_KEY
+    );
+    return payload ? JSON.parse(payload) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistPendingStripeCheckout(payload) {
+  window.localStorage.setItem(
+    PENDING_STRIPE_CHECKOUT_STORAGE_KEY,
+    JSON.stringify(payload)
+  );
+}
+
+function clearPendingStripeCheckout() {
+  window.localStorage.removeItem(PENDING_STRIPE_CHECKOUT_STORAGE_KEY);
+}
+
+function removeStatusFromUrl() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("status")) {
+    return;
+  }
+
+  url.searchParams.delete("status");
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 function loadStripeScript() {
@@ -88,6 +137,70 @@ async function getStripeClient() {
   return Stripe(publishableKey);
 }
 
+async function persistSupabaseStripeSubscription({ email, plan, userId }) {
+  const supabase = assertSupabaseConfigured();
+  const startsAt = new Date().toISOString();
+  const subscriptionPayload = {
+    amount: PLAN_PRICING[plan],
+    currency: "GBP",
+    customer_id: email || null,
+    ends_at: buildEndsAt(plan, startsAt),
+    paid_at: startsAt,
+    plan,
+    provider: "stripe",
+    starts_at: startsAt,
+    status: "active",
+    updated_at: startsAt,
+    user_id: userId,
+  };
+
+  const { data: existingSubscription, error: existingError } = await supabase
+    .from("subscriptions")
+    .select("id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError && existingError.code !== "PGRST116") {
+    throw existingError;
+  }
+
+  if (existingSubscription?.id) {
+    const { error } = await supabase
+      .from("subscriptions")
+      .update(subscriptionPayload)
+      .eq("id", existingSubscription.id);
+
+    if (error) {
+      throw error;
+    }
+  } else {
+    const { error } = await supabase
+      .from("subscriptions")
+      .insert(subscriptionPayload);
+
+    if (error) {
+      throw error;
+    }
+  }
+
+  const { error: userError } = await supabase
+    .from("users")
+    .update({
+      subscription_plan: plan,
+      subscription_status: "active",
+      updated_at: startsAt,
+    })
+    .eq("id", userId);
+
+  if (userError) {
+    throw userError;
+  }
+
+  return normalizeSubscription(subscriptionPayload);
+}
+
 export async function getUserSubscriptionSummary(userId, profile) {
   try {
     const supabase = assertSupabaseConfigured();
@@ -106,6 +219,65 @@ export async function getUserSubscriptionSummary(userId, profile) {
     return { data: normalizeSubscription(data, profile), error: null };
   } catch {
     return { data: normalizeSubscription(null, profile), error: null };
+  }
+}
+
+export async function syncStripeCheckoutStatus({ profile, userId }) {
+  const status = new URLSearchParams(window.location.search).get("status");
+
+  if (!status || !userId) {
+    return { data: null, error: null, message: "", handled: false };
+  }
+
+  const pendingCheckout = readPendingStripeCheckout();
+  removeStatusFromUrl();
+
+  if (status === "checkout_cancelled") {
+    clearPendingStripeCheckout();
+    return {
+      data: null,
+      error: null,
+      message: "Stripe checkout was cancelled.",
+      handled: true,
+    };
+  }
+
+  if (status !== "checkout_success") {
+    return { data: null, error: null, message: "", handled: false };
+  }
+
+  if (!pendingCheckout?.plan || pendingCheckout.userId !== userId) {
+    return {
+      data: normalizeSubscription(null, profile),
+      error:
+        "Stripe returned successfully, but no matching pending subscription was found to save.",
+      message: "",
+      handled: true,
+    };
+  }
+
+  try {
+    const data = await persistSupabaseStripeSubscription({
+      email: pendingCheckout.email,
+      plan: pendingCheckout.plan,
+      userId,
+    });
+
+    clearPendingStripeCheckout();
+
+    return {
+      data,
+      error: null,
+      message: "Stripe payment saved to Supabase successfully.",
+      handled: true,
+    };
+  } catch (error) {
+    return {
+      data: normalizeSubscription(null, profile),
+      error: `Stripe payment succeeded, but saving it in Supabase failed: ${formatError(error)}`,
+      message: "",
+      handled: true,
+    };
   }
 }
 
@@ -130,6 +302,12 @@ export async function startCheckoutSession({
     const directLink = PAYMENT_LINKS[normalizedPlan];
 
     if (directLink) {
+      persistPendingStripeCheckout({
+        email,
+        plan: normalizedPlan,
+        startedAt: new Date().toISOString(),
+        userId,
+      });
       window.location.assign(directLink);
       return {
         data: {
@@ -166,6 +344,12 @@ export async function startCheckoutSession({
     }
 
     if (data?.url) {
+      persistPendingStripeCheckout({
+        email,
+        plan: normalizedPlan,
+        startedAt: new Date().toISOString(),
+        userId,
+      });
       window.location.assign(data.url);
       return {
         data: {
@@ -178,11 +362,18 @@ export async function startCheckoutSession({
 
     if (data?.sessionId) {
       const stripe = await getStripeClient();
+      persistPendingStripeCheckout({
+        email,
+        plan: normalizedPlan,
+        startedAt: new Date().toISOString(),
+        userId,
+      });
       const redirectResult = await stripe.redirectToCheckout({
         sessionId: data.sessionId,
       });
 
       if (redirectResult?.error) {
+        clearPendingStripeCheckout();
         return { data: null, error: formatError(redirectResult.error) };
       }
 
