@@ -143,7 +143,7 @@ async function persistSupabaseStripeSubscription({ email, plan, userId }) {
   const subscriptionPayload = {
     amount: PLAN_PRICING[plan],
     currency: "GBP",
-    customer_id: email || null,
+    customer_id: null,
     ends_at: buildEndsAt(plan, startsAt),
     paid_at: startsAt,
     plan,
@@ -299,6 +299,74 @@ export async function startCheckoutSession({
   }
 
   try {
+    const functionName = import.meta.env.VITE_SUPABASE_STRIPE_FUNCTION;
+
+    if (functionName) {
+      const supabase = assertSupabaseConfigured();
+      const { data, error } = await supabase.functions.invoke(functionName, {
+        body: {
+          cancel_url: buildReturnUrl(cancelPath, "checkout_cancelled"),
+          email,
+          plan: normalizedPlan,
+          success_url: buildReturnUrl(successPath, "checkout_success"),
+          user_id: userId,
+        },
+      });
+
+      if (error) {
+        return { data: null, error: formatError(error) };
+      }
+
+      if (data?.url) {
+        persistPendingStripeCheckout({
+          email,
+          plan: normalizedPlan,
+          startedAt: new Date().toISOString(),
+          userId,
+        });
+        window.location.assign(data.url);
+        return {
+          data: {
+            message: "Redirecting to Stripe Checkout...",
+            redirectUrl: data.url,
+          },
+          error: null,
+        };
+      }
+
+      if (data?.sessionId) {
+        const stripe = await getStripeClient();
+        persistPendingStripeCheckout({
+          email,
+          plan: normalizedPlan,
+          startedAt: new Date().toISOString(),
+          userId,
+        });
+        const redirectResult = await stripe.redirectToCheckout({
+          sessionId: data.sessionId,
+        });
+
+        if (redirectResult?.error) {
+          clearPendingStripeCheckout();
+          return { data: null, error: formatError(redirectResult.error) };
+        }
+
+        return {
+          data: {
+            message: "Redirecting to Stripe Checkout...",
+            sessionId: data.sessionId,
+          },
+          error: null,
+        };
+      }
+
+      return {
+        data: null,
+        error:
+          "The Stripe checkout function did not return a checkout URL or session ID.",
+      };
+    }
+
     const directLink = PAYMENT_LINKS[normalizedPlan];
 
     if (directLink) {
@@ -318,77 +386,10 @@ export async function startCheckoutSession({
       };
     }
 
-    const functionName = import.meta.env.VITE_SUPABASE_STRIPE_FUNCTION;
-
-    if (!functionName) {
-      return {
-        data: null,
-        error:
-          "Stripe checkout is not fully configured. Add Stripe payment links or set VITE_SUPABASE_STRIPE_FUNCTION.",
-      };
-    }
-
-    const supabase = assertSupabaseConfigured();
-    const { data, error } = await supabase.functions.invoke(functionName, {
-      body: {
-        cancel_url: buildReturnUrl(cancelPath, "checkout_cancelled"),
-        email,
-        plan: normalizedPlan,
-        success_url: buildReturnUrl(successPath, "checkout_success"),
-        user_id: userId,
-      },
-    });
-
-    if (error) {
-      return { data: null, error: formatError(error) };
-    }
-
-    if (data?.url) {
-      persistPendingStripeCheckout({
-        email,
-        plan: normalizedPlan,
-        startedAt: new Date().toISOString(),
-        userId,
-      });
-      window.location.assign(data.url);
-      return {
-        data: {
-          message: "Redirecting to Stripe Checkout...",
-          redirectUrl: data.url,
-        },
-        error: null,
-      };
-    }
-
-    if (data?.sessionId) {
-      const stripe = await getStripeClient();
-      persistPendingStripeCheckout({
-        email,
-        plan: normalizedPlan,
-        startedAt: new Date().toISOString(),
-        userId,
-      });
-      const redirectResult = await stripe.redirectToCheckout({
-        sessionId: data.sessionId,
-      });
-
-      if (redirectResult?.error) {
-        clearPendingStripeCheckout();
-        return { data: null, error: formatError(redirectResult.error) };
-      }
-
-      return {
-        data: {
-          message: "Redirecting to Stripe Checkout...",
-          sessionId: data.sessionId,
-        },
-        error: null,
-      };
-    }
-
     return {
       data: null,
-      error: "The Stripe checkout function did not return a checkout URL or session ID.",
+      error:
+        "Stripe checkout is not fully configured. Add Stripe payment links or set VITE_SUPABASE_STRIPE_FUNCTION.",
     };
   } catch (error) {
     return { data: null, error: formatError(error) };
