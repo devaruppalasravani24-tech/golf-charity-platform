@@ -3,12 +3,13 @@ import { useAuth } from "./authContext";
 import {
   getUserSubscriptionSummary,
   startCheckoutSession,
+  syncStripeCheckoutStatus,
 } from "../services/subscriptionService";
 
 const SubscriptionContext = createContext(null);
 
 export function SubscriptionProvider({ children }) {
-  const { profile, user } = useAuth();
+  const { profile, refreshProfile, user } = useAuth();
   const [subscription, setSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -22,21 +23,47 @@ export function SubscriptionProvider({ children }) {
       if (!user?.id) {
         if (isMounted) {
           setSubscription(null);
+          setError("");
+          setMessage("");
           setLoading(false);
         }
         return;
       }
 
       setLoading(true);
+      const syncResult = await syncStripeCheckoutStatus({
+        profile,
+        userId: user.id,
+      });
+
+      if (!isMounted) return;
+
+      if (syncResult.handled) {
+        if (syncResult.data) {
+          setSubscription(syncResult.data);
+        }
+        setError(syncResult.error || "");
+        setMessage(syncResult.message || "");
+
+        if (!syncResult.error) {
+          await refreshProfile();
+          if (!isMounted) return;
+        }
+      }
+
       const result = await getUserSubscriptionSummary(user.id, profile);
       if (!isMounted) return;
 
+      if (result.data) {
+        setSubscription(result.data);
+      }
+
       if (result.error) {
         setError(result.error);
-      } else {
-        setSubscription(result.data);
-        setError("");
         setMessage("");
+      } else {
+        setError(syncResult.error || "");
+        setMessage(syncResult.message || "");
       }
 
       setLoading(false);
